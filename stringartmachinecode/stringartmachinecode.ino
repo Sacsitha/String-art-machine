@@ -1,18 +1,28 @@
 #include <Adafruit_NeoPixel.h>
+#include <Servo.h>
+#include "monalisa_data.h"
 
 #define LED_PIN     5
 #define NUM_LEDS    300
 #define STEP_PIN    2
 #define DIR_PIN     4
 
+#define SERVO_PIN 9
+
+Servo armServo;
+
+const int ARM_DOWN = 20;
+const int ARM_UP = 90;
+const int ARM_FORWARD = 110;
+
 Adafruit_NeoPixel strip(NUM_LEDS, LED_PIN, NEO_GRB + NEO_KHZ800);
 
-int colors[][4] = {
+/*int colors[][4] = {
   {255, 0, 0, 20},
   {0, 255, 0, 30},
   {0, 0, 255, 40},{0, 0, 255, 41},{0, 0, 255, 51},{0, 0, 255, 63},{0, 0, 255, 7},{0, 0, 255, 81},{0, 0, 255, 40},{0, 0, 255, 90},{0, 0, 255, 140},
   {-1, -1, -1, -1}
-};
+};*/
 
 // Motor settings
 const int stepsPerRevolution = 200;
@@ -25,12 +35,23 @@ const int totalSegments = 300;
 // Current wheel position
 int currentSegment = 0;
 
+/*void setup() {
+  strip.begin();
+  strip.show();
+
+  pinMode(STEP_PIN, OUTPUT);
+  pinMode(DIR_PIN, OUTPUT);
+}*/
 void setup() {
   strip.begin();
   strip.show();
 
   pinMode(STEP_PIN, OUTPUT);
   pinMode(DIR_PIN, OUTPUT);
+
+  armServo.attach(SERVO_PIN);
+  armServo.write(ARM_DOWN);
+  delay(500);
 }
 
 void loop() {
@@ -49,7 +70,14 @@ void loop() {
 
     setAllLEDs(r, g, b);
 
+    /*rotateToSegment(targetSegment);
+
+    delay(2000);*/
+    
     rotateToSegment(targetSegment);
+
+    // Perform string placement
+    moveArm();
 
     delay(2000);
 
@@ -69,7 +97,20 @@ void setAllLEDs(int r, int g, int b) {
 
   strip.show();
 }
+void moveArm() {
 
+  // Lift arm
+  armServo.write(ARM_UP);
+  delay(500);
+
+  // Move slightly further
+  armServo.write(ARM_FORWARD);
+  delay(300);
+
+  // Lower arm
+  armServo.write(ARM_DOWN);
+  delay(500);
+}
 void rotateToSegment(int targetSegment) {
 
   // Difference between current and target

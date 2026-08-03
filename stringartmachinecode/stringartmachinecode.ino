@@ -1,94 +1,114 @@
 #include <Adafruit_NeoPixel.h>
-#include <Servo.h>
+#include <ESP32Servo.h>
 #include "monalisa_data.h"
 
-#define LED_PIN     5
-#define NUM_LEDS    300
-#define STEP_PIN    2
-#define DIR_PIN     4
+#define LED_PIN     2
+#define NUM_LEDS    174
+#define HALL_PIN 13 
+#define SERVO_PIN 27
+#define STEP_PIN 12
+#define DIR_PIN 14
 
-#define SERVO_PIN 9
-
-Servo armServo;
-
-const int ARM_DOWN = 20;
-const int ARM_UP = 90;
-const int ARM_FORWARD = 110;
-
-Adafruit_NeoPixel strip(NUM_LEDS, LED_PIN, NEO_GRB + NEO_KHZ800);
-
-/*int colors[][4] = {
-  {255, 0, 0, 20},
-  {0, 255, 0, 30},
-  {0, 0, 255, 40},{0, 0, 255, 41},{0, 0, 255, 51},{0, 0, 255, 63},{0, 0, 255, 7},{0, 0, 255, 81},{0, 0, 255, 40},{0, 0, 255, 90},{0, 0, 255, 140},
-  {-1, -1, -1, -1}
-};*/
-
-// Motor settings
+//Stepper Motor 
 const int stepsPerRevolution = 200;
-const int microstep = 16;
-const int totalSteps = stepsPerRevolution * microstep; // 3200
-
-// Wheel divided into 300 segments
+const int microstep = 1;
+const int totalSteps = stepsPerRevolution * microstep*4;
+//const int totalSteps = 3200;
 const int totalSegments = 300;
 
-// Current wheel position
 int currentSegment = 0;
+const int startDelay = 20000;
+const int runDelay = 18000;
+const int accelerationStep = 1;
+//Server Motor movement
+Servo armServo;
+const int ARM_DOWN = 115;
+const int ARM_UP = 90;
+const int ARM_FORWARD = 80;
+//LED format
+Adafruit_NeoPixel strip(NUM_LEDS, LED_PIN, NEO_GRB + NEO_KHZ800);
+void setup()
+{
+  Serial.begin(115200);
 
-/*void setup() {
   strip.begin();
   strip.show();
 
-  pinMode(STEP_PIN, OUTPUT);
-  pinMode(DIR_PIN, OUTPUT);
-}*/
-void setup() {
-  strip.begin();
-  strip.show();
-
+  pinMode(HALL_PIN, INPUT_PULLUP);
   pinMode(STEP_PIN, OUTPUT);
   pinMode(DIR_PIN, OUTPUT);
 
   armServo.attach(SERVO_PIN);
   armServo.write(ARM_DOWN);
-  delay(500);
-}
 
+  homeMachine();
+}
+/*void setup() {
+  //Initialize LED Strip
+  strip.begin();
+  strip.show();
+  //Configure pins
+  pinMode(HALL_PIN, INPUT_PULLUP);
+  pinMode(STEP_PIN, OUTPUT);
+  pinMode(DIR_PIN, OUTPUT);
+  //Initialize servo
+  armServo.attach(SERVO_PIN);
+  armServo.write(ARM_DOWN);
+  //Find the starting position using hall effect sensor
+  homeMachine(); 
+}
+*/
 void loop() {
 
   int i = 0;
 
-  while (true) {
+  int prevR = -1;
+  int prevG = -1;
+  int prevB = -1;
 
+  while (true) {
+    //Reads the data from "monalisa_data.h"
     int r = colors[i][0];
     int g = colors[i][1];
     int b = colors[i][2];
     int targetSegment = colors[i][3];
-
+    //End of data
     if (r == -1 && g == -1 && b == -1 && targetSegment == -1)
       break;
-
-    setAllLEDs(r, g, b);
-
-    /*rotateToSegment(targetSegment);
-
-    delay(2000);*/
-    
+    //detect color chae in the data
+    if (i > 0 && (r != prevR || g != prevG || b != prevB)) {
+      setAllLEDs(r, g, b);
+      delay(180000);  
+    }
+    //Show the current color
+    //setAllLEDs(r, g, b);
+    lightNearestLED(targetSegment, r, g, b);
+    delay(500);
+    //Move the wheel(Stepper Motor)
     rotateToSegment(targetSegment);
-
-    // Perform string placement
+    delay(500);
+    //Move the arm(Server Motor)
     moveArm();
 
-    delay(2000);
-
+    delay(500);
+    prevR = r;
+    prevG = g;
+    prevB = b;
     i++;
   }
-
-  setAllLEDs(0, 0, 0);
+  strip.clear();
+strip.show();
+  //Reset the LED Strip
+  //setAllLEDs(0, 0, 0);
+  while (1); 
+}
+/*void loop()
+{
+  rotateToSegment(106);
 
   while (1);
-}
-
+}*/
+//LED color changing function
 void setAllLEDs(int r, int g, int b) {
 
   for (int i = 0; i < NUM_LEDS; i++) {
@@ -98,43 +118,190 @@ void setAllLEDs(int r, int g, int b) {
   strip.show();
 }
 void moveArm() {
-
-  // Lift arm
+  //Lift arm to 90°
   armServo.write(ARM_UP);
   delay(500);
-
-  // Move slightly further
+  //Lift arm to 110°
   armServo.write(ARM_FORWARD);
-  delay(300);
-
-  // Lower arm
+  delay(500);
+  //move the wheel --Helps guide the thread
+  jogMotor(HIGH, 10);
+  delay(500);
+  //Lower the arm to 20°
   armServo.write(ARM_DOWN);
   delay(500);
 }
-void rotateToSegment(int targetSegment) {
+//A single step movement of the stepper motor --wheel
+void stepMotor(int delayTime)
+{
+  digitalWrite(STEP_PIN, HIGH);
+  delayMicroseconds(delayTime);
 
-  // Difference between current and target
-  int segmentDifference = targetSegment - currentSegment;
+  digitalWrite(STEP_PIN, LOW);
+  delayMicroseconds(delayTime);
+}
+//Stepper motor movement for threadin through the nail
+void jogMotor(bool direction, int steps)
+{
+  digitalWrite(DIR_PIN, direction);
 
-  // Convert segments to motor steps
-  float stepsPerSegment = (float)totalSteps / totalSegments;
+  for (int i = 0; i < steps; i++)
+  {
+    stepMotor(3000);
+  }
+}
+/*void moveMotor(bool direction, int steps)
+{
+  digitalWrite(DIR_PIN, direction);
 
-  int stepsToMove = round(segmentDifference * stepsPerSegment);
+  // Accelerate
+  int delayTime = startDelay;
 
-  if (stepsToMove >= 0) {
-    digitalWrite(DIR_PIN, HIGH);
-  } else {
-    digitalWrite(DIR_PIN, LOW);
-    stepsToMove = abs(stepsToMove);
+  while (delayTime > runDelay)
+  {
+    stepMotor(delayTime);
+    delayTime -= accelerationStep;
   }
 
-  for (int s = 0; s < stepsToMove; s++) {
-    digitalWrite(STEP_PIN, HIGH);
-    delayMicroseconds(800);
-    digitalWrite(STEP_PIN, LOW);
-    delayMicroseconds(800);
+  // Constant speed
+  for (int i = 0; i < steps; i++)
+  {
+    stepMotor(runDelay);
+  }
+
+  // Decelerate
+  delayTime = runDelay;
+
+  while (delayTime < startDelay)
+  {
+    stepMotor(delayTime);
+    delayTime += accelerationStep;
+  }
+}*/
+void moveMotor(bool direction, int steps)
+{
+  digitalWrite(DIR_PIN, direction);
+
+  for (int i = 0; i < steps; i++)
+  {
+    stepMotor(3000);
+  }
+}
+
+
+void rotateToSegment(int targetSegment)
+{
+  int segmentDifference = targetSegment - currentSegment;
+
+  if (segmentDifference > 150)
+  {
+    segmentDifference -= 300;
+  }
+
+  if (segmentDifference < -150)
+  {
+    segmentDifference += 300;
+  }
+  float stepsPerSegment = (float)totalSteps / totalSegments;
+
+  int motorSteps = round(abs(segmentDifference) * stepsPerSegment);
+
+  Serial.print("Current Segment: ");
+  Serial.println(currentSegment);
+
+  Serial.print("Target Segment: ");
+  Serial.println(targetSegment);
+
+  Serial.print("Motor Steps: ");
+  Serial.println(motorSteps);
+
+  if (segmentDifference >= 0)
+    moveMotor(HIGH, motorSteps);
+  else
+    moveMotor(LOW, motorSteps);
+
+  currentSegment = targetSegment;
+}
+void homeMachine()
+{
+  //Serial.begin(115200);
+
+  digitalWrite(DIR_PIN, HIGH);
+
+  // Search for magnet
+  while (digitalRead(HALL_PIN) == HIGH)
+  {
+    stepMotor(12000);
+  }
+
+  // Move away a little
+  digitalWrite(DIR_PIN, LOW);
+
+  for(int i=0;i<50;i++)
+      stepMotor(12000);
+
+  // Slowly approach again
+  digitalWrite(DIR_PIN, HIGH);
+
+  while (digitalRead(HALL_PIN) == HIGH)
+  {
+    stepMotor(12000);
+  }
+
+  currentSegment = 0;
+
+  Serial.println("Home Position Set");
+  currentSegment = 0;
+  setAllLEDs(255,255,51);
+  delay(1000);
+}
+
+/*
+void rotateToSegment(int targetSegment)
+{
+  int segmentDifference = targetSegment - currentSegment;
+
+  // Choose shortest direction
+  if (segmentDifference > totalSegments / 2)
+  {
+    segmentDifference -= totalSegments;
+  }
+  else if (segmentDifference < -totalSegments / 2)
+  {
+    segmentDifference += totalSegments;
+  }
+
+  float stepsPerSegment = (float)totalSteps / totalSegments;
+
+  int motorSteps = round(abs(segmentDifference) * stepsPerSegment);
+
+
+  Serial.print("Moving segments: ");
+  Serial.println(segmentDifference);
+
+  Serial.print("Steps: ");
+  Serial.println(motorSteps);
+
+
+  if (segmentDifference > 0)
+  {
+    moveMotor(HIGH, motorSteps);
+  }
+  else if (segmentDifference < 0)
+  {
+    moveMotor(LOW, motorSteps);
   }
 
   currentSegment = targetSegment;
+}
+*/
+void lightNearestLED(int nail, int r, int g, int b)
+{
+    strip.clear();
+
+    int ledIndex = round((nail * (NUM_LEDS - 1)) / (float)(totalSegments - 1));
+
+    strip.setPixelColor(ledIndex, strip.Color(r, g, b));
+    strip.show();
 }
 
